@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"sync/atomic"
@@ -17,10 +18,10 @@ func main() {
 	apiCfg := &apiConfig{}
 
 	mux := http.NewServeMux()
-	mux.Handle("/app", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot)))))
-	mux.HandleFunc("/healthz", endpointHandler)
-	mux.HandleFunc("/metrics", apiCfg.serverHitsHandler)
-	mux.HandleFunc("/reset", apiCfg.ResetServerHitsHandler)
+	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot)))))
+	mux.HandleFunc("GET /api/healthz", handlerReadiness)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
+	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
 
 	srv := &http.Server{
 		Addr:    ":" + port,
@@ -38,17 +39,18 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-func (cfg *apiConfig) ResetServerHitsHandler(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
 	cfg.fileserverHits.Store(0)
-}
-
-func (cfg *apiConfig) serverHitsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte(fmt.Sprintf("Hits: %d\n", cfg.fileserverHits.Load())))
-}
-
-func endpointHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	w.Write([]byte("Hits reset to 0\n"))
+}
+
+func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	tmpl, err := template.ParseFiles("admin/metrics/metrics.html")
+	if err != nil {
+		fmt.Errorf("Could not read template: %s", err)
+	}
+	tmpl.Execute(w, cfg.fileserverHits.Load())
 }
