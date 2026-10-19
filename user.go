@@ -13,13 +13,13 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) 
 	type parameters struct {
 		Email string `json:"email"`
 	}
-
 	type User struct {
 		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
 		Email     string    `json:"email"`
 	}
+
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
 	err := decoder.Decode(&params)
@@ -37,7 +37,7 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) 
 		respondWithError(w, http.StatusInternalServerError, "Could't create record in database", err)
 		return
 	}
-
+	
 	userRes := User{
 		ID:        userDb.ID,
 		CreatedAt: userDb.CreatedAt,
