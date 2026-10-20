@@ -7,30 +7,76 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/paulhoffM/chirpy/internal/database"
+	"github.com/paulhoffM/chirpy/internal/auth"
 )
 
-func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
-	type parameters struct {
-		Email string `json:"email"`
-	}
-	type User struct {
+
+type Parameters struct {
+	Password string `json:"password"`
+	Email string `json:"email"`
+	}	
+
+type User struct {
 		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
+		Password string `json:"password"`
 		Email     string    `json:"email"`
 	}
-
+	
+	
+func (cfg *apiConfig) handlerLoginUser(w http.ResponseWriter, r *http.Request){
 	decoder := json.NewDecoder(r.Body)
-	params := parameters{}
+	params := Parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could't decode parameters", err)
+		return
+		}	
+	
+	userDB, err := cfg.DB.GetUser(r.Context(),params.Email)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not fetch user", err)
+		return
+	}
+	match, err := auth.CheckPasswordHash(params.Password, userDB.HashedPassword)
+	if err != nil{
+		respondWithError(w, http.StatusInternalServerError, "Couldn't compare hash password with password", err)
+		return
+	}	
+	if match != true {
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password", err)
+		
+	}	
+	userRes := User{
+		ID:        userDB.ID,
+		CreatedAt: userDB.CreatedAt,
+		UpdatedAt: userDB.UpdatedAt,
+		Email:     userDB.Email,
+	}	
+	respondWithJSON(w, http.StatusOK, userRes)
+}	
+
+func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(r.Body)
+	params := Parameters{}
 	err := decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could't decode parameters", err)
 		return
 	}
+	hashedPassword, err := auth.HashPassword(params.Password)
+		if err != nil{
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create a hash password", err)
+		return
+	}
+
+
 	userDb, err := cfg.DB.CreateUser(r.Context(), database.CreateUserParams{
 		ID:        uuid.New(),
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
+		HashedPassword: hashedPassword,
 		Email:     params.Email,
 	})
 	if err != nil {
