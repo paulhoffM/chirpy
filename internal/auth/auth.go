@@ -1,12 +1,13 @@
 package auth
 
 import (
-	"time"
-	"strings"
-	"errors"
-	"net/http"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/alexedwards/argon2id"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -19,8 +20,7 @@ func MakeRefreshToken() string {
 	return encodedStr
 }
 
-
-func GetBearerToken(headers http.Header) (string, error){
+func GetBearerToken(headers http.Header) (string, error) {
 	if headers.Get("Authorization") == "" {
 		return "", errors.New("Request header does not contain a token")
 	}

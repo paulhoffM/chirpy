@@ -7,6 +7,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,6 +48,49 @@ func (q *Queries) CreateChirp(ctx context.Context, arg CreateChirpParams) (Chirp
 		&i.UpdatedAt,
 		&i.Body,
 		&i.UserID,
+	)
+	return i, err
+}
+
+const createRefreshToken = `-- name: CreateRefreshToken :one
+INSERT INTO refreshToken (token, created_at, updated_at, user_id, expires_at, revoked_at)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6
+)
+RETURNING token, created_at, updated_at, user_id, expires_at, revoked_at
+`
+
+type CreateRefreshTokenParams struct {
+	Token     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	UserID    uuid.UUID
+	ExpiresAt time.Time
+	RevokedAt sql.NullTime
+}
+
+func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) (Refreshtoken, error) {
+	row := q.db.QueryRowContext(ctx, createRefreshToken,
+		arg.Token,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+		arg.UserID,
+		arg.ExpiresAt,
+		arg.RevokedAt,
+	)
+	var i Refreshtoken
+	err := row.Scan(
+		&i.Token,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.RevokedAt,
 	)
 	return i, err
 }
@@ -164,4 +208,39 @@ func (q *Queries) GetUser(ctx context.Context, email string) (User, error) {
 		&i.Email,
 	)
 	return i, err
+}
+
+const getUserFromRefreshToken = `-- name: GetUserFromRefreshToken :one
+SELECT token, created_at, updated_at, user_id, expires_at, revoked_at FROM refreshToken WHERE token = $1
+`
+
+func (q *Queries) GetUserFromRefreshToken(ctx context.Context, token string) (Refreshtoken, error) {
+	row := q.db.QueryRowContext(ctx, getUserFromRefreshToken, token)
+	var i Refreshtoken
+	err := row.Scan(
+		&i.Token,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const revokeRefreshToken = `-- name: RevokeRefreshToken :exec
+Update refreshToken
+SET  revoked_at = $2, updated_at = $3
+WHERE token = $1
+`
+
+type RevokeRefreshTokenParams struct {
+	Token     string
+	RevokedAt sql.NullTime
+	UpdatedAt time.Time
+}
+
+func (q *Queries) RevokeRefreshToken(ctx context.Context, arg RevokeRefreshTokenParams) error {
+	_, err := q.db.ExecContext(ctx, revokeRefreshToken, arg.Token, arg.RevokedAt, arg.UpdatedAt)
+	return err
 }
