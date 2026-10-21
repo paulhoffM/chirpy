@@ -1,28 +1,43 @@
 package auth
 
 import (
-
-	// "github.com/google/uuid"
+	"time"
 
 	"github.com/alexedwards/argon2id"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
-// func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error)
+func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
+	claims := &jwt.RegisteredClaims{}
+	_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(tokenSecret), nil
+	})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	id, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
 
-// func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error){
-// 	claims := &jwt.RegisteredClaims{
-// 		Issuer: "chirpy-access"
-// 		IssuedAt: time.Now.UTC()
-// 		ExipresAt: time.Now.UTC() + expiresIn
-// 		Subject: userID.String()
-// 	}
-// 	token := jwt.NewWithClaims(jwt.SigningMethodHS256(), claims)
-// 	ss, err := token.SignedString(tokenSecret)
-// 	if err != nil{
-// 		respondWithError(w, http.StatusInternalServerError, "Could not sign the token", err)
-// 	}
-// 	return ss, nil
-// }
+}
+
+func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
+	claims := &jwt.RegisteredClaims{
+		Issuer:    "chirpy-access",
+		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+		ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiresIn)),
+		Subject:   userID.String(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	ss, err := token.SignedString([]byte(tokenSecret))
+	if err != nil {
+		return "", err
+	}
+	return ss, nil
+}
 
 func HashPassword(password string) (string, error) {
 	hash, err := argon2id.CreateHash(password, argon2id.DefaultParams)
