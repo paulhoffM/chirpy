@@ -14,14 +14,16 @@ import (
 type Parameters struct {
 	Password string `json:"password"`
 	Email string `json:"email"`
+	TokenExpire int `json:"expires_in_seconds"`
 	}	
-
-type User struct {
+	
+	type User struct {
 		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
 		Password string `json:"password"`
 		Email     string    `json:"email"`
+		Token    string  `json:"token"`
 	}
 	
 	
@@ -47,12 +49,25 @@ func (cfg *apiConfig) handlerLoginUser(w http.ResponseWriter, r *http.Request){
 	if match != true {
 		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password", err)
 		
-	}	
+	}
+	var expiresIn time.Duration
+	if params.TokenExpire == 0 || params.TokenExpire > 3600{
+		expiresIn, _ = time.ParseDuration("1h")
+	}else {
+		expiresIn = time.Duration(params.TokenExpire)*time.Second
+	}
+	tokenJWT, err := auth.MakeJWT(userDB.ID, cfg.JWTSecret, expiresIn)
+	if err != nil{
+		respondWithError(w, http.StatusInternalServerError, "Could not create Token", err)
+		return
+	}
+	
 	userRes := User{
 		ID:        userDB.ID,
 		CreatedAt: userDB.CreatedAt,
 		UpdatedAt: userDB.UpdatedAt,
 		Email:     userDB.Email,
+		Token: tokenJWT,
 	}	
 	respondWithJSON(w, http.StatusOK, userRes)
 }	

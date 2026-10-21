@@ -17,6 +17,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	DB             *database.Queries
 	platform       string
+	JWTSecret    string
 }
 
 func main() {
@@ -40,6 +41,7 @@ func main() {
 	apiCfg := &apiConfig{
 		DB:       dbQueries,
 		platform: platform,
+		JWTSecret: os.Getenv("JWTSECRET"),
 	}
 
 	mux := http.NewServeMux()

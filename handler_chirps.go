@@ -3,13 +3,13 @@ package main
 import (
 	"fmt"
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/paulhoffM/chirpy/internal/database"
+	"github.com/paulhoffM/chirpy/internal/auth"
 )
 
 type Chirp struct{
@@ -44,6 +44,55 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request){
 	respondWithJSON(w, http.StatusOK, chirpResp)
 }
 
+func (cfg *apiConfig) handlerChirpMsg(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Body string `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
+	}
+	
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could't decode parameters", err)
+		return
+	}
+	tokenString, err := auth.GetBearerToken(r.Header)
+	if err != nil{
+		respondWithError(w,http.StatusUnauthorized, "Log in again",err)
+	}
+	validatedID, err := auth.ValidateJWT(tokenString, cfg.JWTSecret)
+	if err != nil{
+		respondWithError(w,http.StatusUnauthorized, "Log in again",err)
+	}
+	const maxChirpLength = 140
+	if len(params.Body) > maxChirpLength {
+		respondWithError(w, http.StatusBadRequest, "Chirp is too long", nil)
+		return
+	}
+	params.Body = profaneFilter(params.Body)
+	
+	fmt.Println(params.UserID)
+	chirpDB, err := cfg.DB.CreateChirp(r.Context(), database.CreateChirpParams{
+		ID: uuid.New(),
+		CreatedAt:time.Now().UTC(),
+		UpdatedAt:time.Now().UTC(),
+		Body: params.Body,
+		UserID: validatedID,
+	})
+	if err != nil{
+		respondWithError(w, http.StatusInternalServerError, "Could't create record in database", err)
+		return
+	}
+	chirpResp := Chirp{
+		ID: chirpDB.ID,
+		CreatedAt: chirpDB.CreatedAt,
+		UpdatedAt: chirpDB.UpdatedAt,
+		Body: chirpDB.Body,
+		UserID: chirpDB.UserID,
+	}
+	respondWithJSON(w, http.StatusCreated, chirpResp)
+}
 
 func (cfg *apiConfig) handlerChirpList(w http.ResponseWriter, r *http.Request){
 	chirpDBList, err := cfg.DB.GetChirps(r.Context())
@@ -64,51 +113,6 @@ func (cfg *apiConfig) handlerChirpList(w http.ResponseWriter, r *http.Request){
 
 	}
 	respondWithJSON(w, http.StatusOK, chirpRespList)
-} 
-
-
-func (cfg *apiConfig) handlerChirpMsg(w http.ResponseWriter, r *http.Request) {
-	type parameters struct {
-		Body string `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
-	}
-	
-	decoder := json.NewDecoder(r.Body)
-	params := parameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Could't decode parameters", err)
-		return
-	}
-	const maxChirpLength = 140
-	if len(params.Body) > maxChirpLength {
-		respondWithError(w, http.StatusBadRequest, "Chirp is too long", nil)
-		return
-	}
-	params.Body = profaneFilter(params.Body)
-	
-	chirpDB, err := cfg.DB.CreateChirp(r.Context(), database.CreateChirpParams{
-		ID: uuid.New(),
-		CreatedAt:time.Now().UTC(),
-		UpdatedAt:time.Now().UTC(),
-		Body: params.Body,
-		UserID: params.UserID,
-	})
-	if err != nil{
-		respondWithError(w, http.StatusInternalServerError, "Could't create record in database", err)
-			return
-	}
-
-	chirpResp := Chirp{
-		ID: chirpDB.ID,
-		CreatedAt: chirpDB.CreatedAt,
-		UpdatedAt: chirpDB.UpdatedAt,
-		Body: chirpDB.Body,
-		UserID: chirpDB.UserID,
-	}
-
-
-	respondWithJSON(w, http.StatusCreated, chirpResp)
 }
 
 func profaneFilter(msg string) string {
@@ -128,35 +132,4 @@ func profaneFilter(msg string) string {
 	return msg
 }
 
-func respondWithError(w http.ResponseWriter, code int, msg string, err error) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	if err != nil {
-		log.Println(err)
-	}
-	if code > 499 {
-		log.Printf("Responding with 5XX error: %s", msg)
-	}
-	type errorResponse struct {
-		Error string `json:"error"`
-	}
-	respondWithJSON(w, code, errorResponse{
-		Error: msg,
-	})
-}
 
-func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	dat, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("Error marshalling JSON: %s", err)
-		w.WriteHeader(500)
-	}
-	w.WriteHeader(code)
-	w.Write(dat)
-}
-
-/*
-curl -i -X POST http://localhost:8080/api/validate_chirp \
-  -H "Content-Type: application/json" \
-  -d '{"body": "This is a kerfuffle opinion"}'
-*/

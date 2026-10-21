@@ -2,11 +2,32 @@ package auth
 
 import (
 	"time"
-
+	"strings"
+	"errors"
+	"net/http"
+	"crypto/rand"
+	"encoding/hex"
 	"github.com/alexedwards/argon2id"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
+
+func MakeRefreshToken() string {
+	key := make([]byte, 32)
+	rand.Read(key)
+	encodedStr := hex.EncodeToString(key)
+	return encodedStr
+}
+
+
+func GetBearerToken(headers http.Header) (string, error){
+	if headers.Get("Authorization") == "" {
+		return "", errors.New("Request header does not contain a token")
+	}
+	tokenString := strings.TrimPrefix(headers.Get("Authorization"), "Bearer ")
+	return tokenString, nil
+
+}
 
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	claims := &jwt.RegisteredClaims{}
