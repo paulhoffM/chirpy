@@ -1,44 +1,84 @@
 package main
 
 import (
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/paulhoffM/chirpy/internal/database"
 	"github.com/paulhoffM/chirpy/internal/auth"
+	"github.com/paulhoffM/chirpy/internal/database"
 )
 
-type Chirp struct{
-	ID uuid.UUID `json:"id"`
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	Body string `json:"body"`
-	UserID uuid.UUID `json:"user_id"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
 }
-func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request){
+
+func (cfg *apiConfig) handlerDeleteChirp(w http.ResponseWriter, r *http.Request) {
+	tokenString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Request does not have a token", err)
+		return
+	}
+
+	validatedID, err := auth.ValidateJWT(tokenString, cfg.JWTSecret)
+	if err != nil {
+		respondWithError(w, http.StatusForbidden, "Invalid User", err)
+		return
+	}
+
 	chirpID, err := uuid.Parse(r.PathValue("chirpID"))
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Could not parse chirpID to uuid", err)
 		return
 	}
-	fmt.Println(chirpID)
+	chirp, err := cfg.DB.GetChirp(r.Context(), chirpID)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Could not find the chirp", err)
+		return
+	}
+	if chirp.UserID != validatedID {
+		respondWithError(w, http.StatusForbidden, "Access Forbidden", nil)
+		return
+	}
 
-	chirpDB, err := cfg.DB.GetChirp(r.Context(),chirpID)
+	err = cfg.DB.DeleteChirp(r.Context(), database.DeleteChirpParams{
+		ID:     chirpID,
+		UserID: validatedID,
+	})
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Could not delete Chirp", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusNoContent, "Chirp Deleted")
+}
+
+func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
+	chirpID, err := uuid.Parse(r.PathValue("chirpID"))
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Could not parse chirpID to uuid", err)
+		return
+	}
+
+	chirpDB, err := cfg.DB.GetChirp(r.Context(), chirpID)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Could not find the chirp", err)
 		return
 	}
 
 	chirpResp := Chirp{
-		ID: chirpDB.ID,
+		ID:        chirpDB.ID,
 		CreatedAt: chirpDB.CreatedAt,
 		UpdatedAt: chirpDB.UpdatedAt,
-		Body: chirpDB.Body,
-		UserID: chirpDB.UserID,
+		Body:      chirpDB.Body,
+		UserID:    chirpDB.UserID,
 	}
 
 	respondWithJSON(w, http.StatusOK, chirpResp)
@@ -46,10 +86,10 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request){
 
 func (cfg *apiConfig) handlerChirpMsg(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Body string `json:"body"`
+		Body   string    `json:"body"`
 		UserID uuid.UUID `json:"user_id"`
 	}
-	
+
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
 	err := decoder.Decode(&params)
@@ -58,12 +98,14 @@ func (cfg *apiConfig) handlerChirpMsg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tokenString, err := auth.GetBearerToken(r.Header)
-	if err != nil{
-		respondWithError(w,http.StatusUnauthorized, "Log in again",err)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Log in again", err)
+		return
 	}
 	validatedID, err := auth.ValidateJWT(tokenString, cfg.JWTSecret)
-	if err != nil{
-		respondWithError(w,http.StatusUnauthorized, "Log in again",err)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Log in again", err)
+		return
 	}
 	const maxChirpLength = 140
 	if len(params.Body) > maxChirpLength {
@@ -71,43 +113,43 @@ func (cfg *apiConfig) handlerChirpMsg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	params.Body = profaneFilter(params.Body)
-	
+
 	fmt.Println(params.UserID)
 	chirpDB, err := cfg.DB.CreateChirp(r.Context(), database.CreateChirpParams{
-		ID: uuid.New(),
-		CreatedAt:time.Now().UTC(),
-		UpdatedAt:time.Now().UTC(),
-		Body: params.Body,
-		UserID: validatedID,
+		ID:        uuid.New(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+		Body:      params.Body,
+		UserID:    validatedID,
 	})
-	if err != nil{
+	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could't create record in database", err)
 		return
 	}
 	chirpResp := Chirp{
-		ID: chirpDB.ID,
+		ID:        chirpDB.ID,
 		CreatedAt: chirpDB.CreatedAt,
 		UpdatedAt: chirpDB.UpdatedAt,
-		Body: chirpDB.Body,
-		UserID: chirpDB.UserID,
+		Body:      chirpDB.Body,
+		UserID:    chirpDB.UserID,
 	}
 	respondWithJSON(w, http.StatusCreated, chirpResp)
 }
 
-func (cfg *apiConfig) handlerChirpList(w http.ResponseWriter, r *http.Request){
+func (cfg *apiConfig) handlerChirpList(w http.ResponseWriter, r *http.Request) {
 	chirpDBList, err := cfg.DB.GetChirps(r.Context())
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Could not get list of chirps", err)
 		return
 	}
 	var chirpRespList []Chirp
-	for _, chirpDB := range chirpDBList{
+	for _, chirpDB := range chirpDBList {
 		chirpResp := Chirp{
-			ID: chirpDB.ID,
+			ID:        chirpDB.ID,
 			CreatedAt: chirpDB.CreatedAt,
 			UpdatedAt: chirpDB.UpdatedAt,
-			Body: chirpDB.Body,
-			UserID: chirpDB.UserID,
+			Body:      chirpDB.Body,
+			UserID:    chirpDB.UserID,
 		}
 		chirpRespList = append(chirpRespList, chirpResp)
 
@@ -131,5 +173,3 @@ func profaneFilter(msg string) string {
 	msg = strings.Join(words, " ")
 	return msg
 }
-
-

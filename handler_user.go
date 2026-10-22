@@ -15,6 +15,11 @@ type Parameters struct {
 	Password    string `json:"password"`
 	Email       string `json:"email"`
 	TokenExpire int    `json:"expires_in_seconds"`
+	Event       string `json:"event`
+	Data        Data   `json:"data"`
+}
+type Data struct {
+	UserID string `json:"user_id"`
 }
 
 type User struct {
@@ -25,14 +30,90 @@ type User struct {
 	Email        string    `json:"email"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
+}
+
+func (cfg *apiConfig) handlerWebhook(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(r.Body)
+	params := Parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Could't decode request Body", err)
+		return
+	}
+	if params.Event != "user.upgraded" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	parsedID, err := uuid.Parse(params.Data.UserID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could't parse ID", err)
+		return
+
+	}
+	err = cfg.DB.UpdateUserToRed(r.Context(), parsedID)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "User not found", err)
+		return
+
+	}
+	respondWithJSON(w, http.StatusNoContent, "")
+}
+
+func (cfg *apiConfig) handlerUpdate(w http.ResponseWriter, r *http.Request) {
+	tokenString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Request does not have a token", err)
+		return
+	}
+
+	validatedID, err := auth.ValidateJWT(tokenString, cfg.JWTSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "No valid token", err)
+		return
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := Parameters{}
+	err = decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Could't decode parameters", err)
+		return
+	}
+
+	hashedPassword, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create a hash password", err)
+		return
+	}
+
+	timeUpdate := time.Now().UTC()
+	user, err := cfg.DB.UpdateUser(r.Context(), database.UpdateUserParams{
+		ID:             validatedID,
+		Email:          params.Email,
+		HashedPassword: hashedPassword,
+		UpdatedAt:      timeUpdate,
+	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't update User in database", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, User{
+		ID:        user.ID,
+		UpdatedAt: timeUpdate,
+		Email:     params.Email,
+	})
+
 }
 
 func (cfg *apiConfig) handlerRevoke(w http.ResponseWriter, r *http.Request) {
 	tokenString, err := auth.GetBearerToken(r.Header)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Request does not have a token", err)
+		respondWithError(w, http.StatusUnauthorized, "Request does not have a token", err)
 		return
 	}
+
 	err = cfg.DB.RevokeRefreshToken(r.Context(), database.RevokeRefreshTokenParams{
 		Token:     tokenString,
 		UpdatedAt: time.Now().UTC(),
@@ -125,6 +206,7 @@ func (cfg *apiConfig) handlerLoginUser(w http.ResponseWriter, r *http.Request) {
 		Email:        userDB.Email,
 		Token:        tokenJWT,
 		RefreshToken: refreshToken.Token,
+		IsChirpyRed:  userDB.IsChirpyRed.Valid,
 	}
 	respondWithJSON(w, http.StatusOK, userRes)
 }

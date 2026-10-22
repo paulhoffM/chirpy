@@ -104,7 +104,7 @@ VALUES (
     $4,
     $5
 )
-RETURNING id, created_at, updated_at, hashed_password, email
+RETURNING id, created_at, updated_at, hashed_password, email, is_chirpy_red
 `
 
 type CreateUserParams struct {
@@ -130,6 +130,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.UpdatedAt,
 		&i.HashedPassword,
 		&i.Email,
+		&i.IsChirpyRed,
 	)
 	return i, err
 }
@@ -140,6 +141,24 @@ DELETE FROM users
 
 func (q *Queries) DeleteAllUsers(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteAllUsers)
+	return err
+}
+
+const deleteChirp = `-- name: DeleteChirp :exec
+DELETE FROM 
+    chirps
+WHERE
+    id = $1
+    AND user_id = $2
+`
+
+type DeleteChirpParams struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+}
+
+func (q *Queries) DeleteChirp(ctx context.Context, arg DeleteChirpParams) error {
+	_, err := q.db.ExecContext(ctx, deleteChirp, arg.ID, arg.UserID)
 	return err
 }
 
@@ -194,7 +213,7 @@ func (q *Queries) GetChirps(ctx context.Context) ([]Chirp, error) {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, created_at, updated_at, hashed_password, email FROM users WHERE email =$1
+SELECT id, created_at, updated_at, hashed_password, email, is_chirpy_red FROM users WHERE email =$1
 `
 
 func (q *Queries) GetUser(ctx context.Context, email string) (User, error) {
@@ -206,6 +225,7 @@ func (q *Queries) GetUser(ctx context.Context, email string) (User, error) {
 		&i.UpdatedAt,
 		&i.HashedPassword,
 		&i.Email,
+		&i.IsChirpyRed,
 	)
 	return i, err
 }
@@ -242,5 +262,49 @@ type RevokeRefreshTokenParams struct {
 
 func (q *Queries) RevokeRefreshToken(ctx context.Context, arg RevokeRefreshTokenParams) error {
 	_, err := q.db.ExecContext(ctx, revokeRefreshToken, arg.Token, arg.RevokedAt, arg.UpdatedAt)
+	return err
+}
+
+const updateUser = `-- name: UpdateUser :one
+UPDATE users
+SET  email = $2, hashed_password = $3, updated_at = $4
+WHERE id = $1
+RETURNING id, created_at, updated_at, hashed_password, email, is_chirpy_red
+`
+
+type UpdateUserParams struct {
+	ID             uuid.UUID
+	Email          string
+	HashedPassword string
+	UpdatedAt      time.Time
+}
+
+func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
+	row := q.db.QueryRowContext(ctx, updateUser,
+		arg.ID,
+		arg.Email,
+		arg.HashedPassword,
+		arg.UpdatedAt,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.HashedPassword,
+		&i.Email,
+		&i.IsChirpyRed,
+	)
+	return i, err
+}
+
+const updateUserToRed = `-- name: UpdateUserToRed :exec
+UPDATE users
+SET  is_chirpy_red = true
+WHERE id = $1
+`
+
+func (q *Queries) UpdateUserToRed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, updateUserToRed, id)
 	return err
 }
