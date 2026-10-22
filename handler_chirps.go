@@ -137,11 +137,48 @@ func (cfg *apiConfig) handlerChirpMsg(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) handlerChirpList(w http.ResponseWriter, r *http.Request) {
-	chirpDBList, err := cfg.DB.GetChirps(r.Context())
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Could not get list of chirps", err)
-		return
+	sortDirection := r.URL.Query().Get("sort")
+	authorID := r.URL.Query().Get("author_id")
+	var chirpDBList []database.Chirp
+	var err error
+	if authorID == "" && sortDirection != "desc" {
+		chirpDBList, err = cfg.DB.GetChirps(r.Context())
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Could not get list of chirps", err)
+			return
+		}
+	} else if authorID == "" && sortDirection == "desc" {
+		chirpDBList, err = cfg.DB.GetChirpsDesc(r.Context())
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Could not get list of chirps", err)
+			return
+		}
+	} else if authorID != "" && sortDirection != "desc" {
+		var ID uuid.UUID
+		ID, err = uuid.Parse(authorID)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Coudl not parse ID", err)
+			return
+		}
+		chirpDBList, err = cfg.DB.GetChirpsFromAuthor(r.Context(), ID)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Could not get list of chirps", err)
+			return
+		}
+	} else {
+		var ID uuid.UUID
+		ID, err = uuid.Parse(authorID)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Coudl not parse ID", err)
+			return
+		}
+		chirpDBList, err = cfg.DB.GetChirpsFromAuthorDesc(r.Context(), ID)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Could not get list of chirps", err)
+			return
+		}
 	}
+
 	var chirpRespList []Chirp
 	for _, chirpDB := range chirpDBList {
 		chirpResp := Chirp{
@@ -154,6 +191,7 @@ func (cfg *apiConfig) handlerChirpList(w http.ResponseWriter, r *http.Request) {
 		chirpRespList = append(chirpRespList, chirpResp)
 
 	}
+
 	respondWithJSON(w, http.StatusOK, chirpRespList)
 }
 

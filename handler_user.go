@@ -34,6 +34,12 @@ type User struct {
 }
 
 func (cfg *apiConfig) handlerWebhook(w http.ResponseWriter, r *http.Request) {
+	apiString, _ := auth.GetAPIKEY(r.Header)
+	if apiString == cfg.PolkaKey {
+		respondWithError(w, http.StatusUnauthorized, "No access", nil)
+		return
+	}
+
 	decoder := json.NewDecoder(r.Body)
 	params := Parameters{}
 	err := decoder.Decode(&params)

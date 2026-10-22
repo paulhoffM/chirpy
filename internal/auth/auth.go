@@ -13,6 +13,11 @@ import (
 	"github.com/google/uuid"
 )
 
+func GetAPIKEY(headers http.Header) (string, error) {
+	tokenString, _ := GetBearerToken(headers)
+	return tokenString, nil
+}
+
 func MakeRefreshToken() string {
 	key := make([]byte, 32)
 	rand.Read(key)
@@ -21,10 +26,14 @@ func MakeRefreshToken() string {
 }
 
 func GetBearerToken(headers http.Header) (string, error) {
+	var tokenString string
 	if headers.Get("Authorization") == "" {
 		return "", errors.New("Request header does not contain a token")
+	} else if strings.Contains(headers.Get("Authorization"), "Bearer ") {
+		tokenString = strings.TrimPrefix(headers.Get("Authorization"), "Bearer ")
+	} else {
+		tokenString = strings.TrimPrefix(headers.Get("Authorization"), "ApiKey ")
 	}
-	tokenString := strings.TrimPrefix(headers.Get("Authorization"), "Bearer ")
 	return tokenString, nil
 
 }

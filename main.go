@@ -17,6 +17,7 @@ type apiConfig struct {
 	DB             *database.Queries
 	platform       string
 	JWTSecret      string
+	PolkaKey       string
 }
 
 func main() {
